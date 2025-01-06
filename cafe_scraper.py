@@ -10,6 +10,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from tqdm import tqdm
+import pyperclip
 
 
 def open_browser():
@@ -25,9 +26,14 @@ def naver_login(naver_id, naver_pw):
     try:
         id_box = driver.find_element(By.ID, 'id')
         pw_box = driver.find_element(By.ID, 'pw')
-        id_box.send_keys(naver_id)  # 네이버 ID
-        pw_box.send_keys(naver_pw)  # 네이버 Password
+        pyperclip.copy(naver_id)
+        id_box.send_keys(Keys.CONTROL+'v')
+        time.sleep(1)
+
+        pyperclip.copy(naver_pw)
+        pw_box.send_keys(Keys.CONTROL+'V')  # 네이버 Password
         pw_box.send_keys(Keys.RETURN)  # 로그인 버튼 대신 Enter 키
+        pyperclip.copy('secure')
 
         # 최대 대기 시간 설정 : 페이지가 다 로드되지 않았을 때 element를 찾다가
         # 오류가 나는 것을 방지하기 위한 설정. 최대 50초까지 기다리고,
