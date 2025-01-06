@@ -66,8 +66,25 @@ def web_scraping(cafe_url, max_pages, menu_name):
     with tqdm(total=max_pages) as pbar:
         while pbar.n < max_pages:
 
-            # 스크래핑
-            scraping()
+            for j in range(1,16):
+                try:
+                    # 게시물 새 창에서 열기 -> 창 이동
+                    page_button = driver.find_element(By.XPATH, f'//*[@id="main-area"]/div[4]/table/tbody/tr[{j}]/td[1]/div[2]/div/a[1]')
+                    page_button.send_keys(Keys.CONTROL+"\n")
+                    driver.switch_to.window(driver.window_handles[-1])
+                    driver.switch_to.frame("cafe_main")
+                    time.sleep(0.5)  # 페이지 로드 대기
+
+                    # 웹 스크래핑
+                    scraping()
+
+                    # 새 창 닫기 -> 원래 창으로 이동
+                    driver.close()
+                    driver.switch_to.window(driver.window_handles[0])
+                    driver.switch_to.frame("cafe_main")
+
+                except:
+                    pass
 
             i += 1
             try:
