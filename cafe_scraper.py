@@ -1,7 +1,6 @@
 import os
 import time
 import json
-import pickle
 from collections import deque
 
 from selenium import webdriver
@@ -12,6 +11,16 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from tqdm import tqdm
 import pyperclip
+
+
+def save_data(data, output_dir, file_name="scraped_data.json"):
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    output_path = os.path.join(output_dir, file_name)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 
 def open_browser():
@@ -48,8 +57,7 @@ def naver_login(naver_id, naver_pw):
 def scraping():
     try:
         '''
-        질문 데이터 추출
-        목록
+        데이터 추출 목록
         1. 제목 (str)
         2. 질문 작성자 명 (str)
         3. 본문 텍스트 (list:str)
@@ -60,43 +68,36 @@ def scraping():
         question_data = {}
 
         # 제목 추출
-        time.sleep(1)  # 데이터 안정성 확보
         title = driver.find_element(By.XPATH, '//*[@id="app"]/div/div/div[2]/div[1]/div[1]/div/div/h3').text
 
         # 작성자 추출
-        time.sleep(1)
-        author = driver.find_element(By.XPATH, '// *[ @ id = "writerInfoqBibMX0Ylk0O3MdSzZhVmw"]').text
+        author = driver.find_element(By.CSS_SELECTOR, ".nickname").text
 
         # 본문 텍스트 추출
-        time.sleep(1)
+        # time.sleep(1)
         body_text_elements = driver.find_elements(By.CSS_SELECTOR, '.se-component.se-text .se-text-paragraph')
         body_text_list = []
         for element in body_text_elements:
             text = element.text
-            if len(text) > 0:
+            if len(text) > 0: # 줄바꿈 제거
                 body_text_list.append(text)
 
         # 본문 이미지 URL 추출
-        time.sleep(1)
+        # time.sleep(1)
         image_elements = driver.find_elements(By.CSS_SELECTOR, '.se-component.se-image img.se-image-resource')
         body_image_list = []
         for element in image_elements:
             body_image_list.append(element.get_attribute('src'))
 
         # 답변 추출
-        time.sleep(2)  # 댓글 데이터 로드 대기
+        # time.sleep(1)  # 댓글 데이터 로드 대기
         comment_elements = driver.find_elements(By.CSS_SELECTOR, ".CommentItem")
         comments = []
         for comment in comment_elements:
             time.sleep(0.5)
-            # 작성자 추출
-            author = comment.find_element(By.CSS_SELECTOR, ".comment_nickname").text.strip()
-
-            # 답변 내용 추출
+            comment_author = comment.find_element(By.CSS_SELECTOR, ".comment_nickname").text.strip()
             content = comment.find_element(By.CSS_SELECTOR, ".text_comment").text.strip()
-
-            # 결과 저장
-            comments.append({"author": author, "content": content})
+            comments.append({"author": comment_author, "content": content})
 
         question_data['title'] = title
         question_data['author'] = author
@@ -104,7 +105,8 @@ def scraping():
             question_data['body_texts'] = body_text_list
         if len(body_image_list) != 0:
             question_data['body_images'] = body_image_list
-        question_data['comments'] = comments
+        if len(comments) != 0:
+            question_data['comments'] = comments
 
         return question_data
 
@@ -112,14 +114,15 @@ def scraping():
         return None
 
 
-def web_scraping(cafe_url, max_pages, menu_name):
+def web_scraping(cafe_url, max_pages, menu_name, output_dir, data_file_name):
+    # 로그인 후 대기
     time.sleep(2)
 
     # 카페 접속
     driver.get(cafe_url)
     time.sleep(2)
 
-    # 식물관련질문 게시판 클릭
+    # 게시판 클릭
     menu = driver.find_element(By.XPATH, f'//a[contains(text(), "{menu_name}")]')
     menu.click()
     time.sleep(2)
@@ -129,6 +132,7 @@ def web_scraping(cafe_url, max_pages, menu_name):
 
     # 페이지네이션
     i = 1
+    scraped_data = []
     with tqdm(total=max_pages) as pbar:
         while pbar.n < max_pages:
 
@@ -144,16 +148,18 @@ def web_scraping(cafe_url, max_pages, menu_name):
 
                     # 웹 스크래핑
                     data = scraping()
+                    if data:
+                        scraped_data.append(data)
 
-                    # 새 창 닫기 -> 원래 창으로 이동
-                    driver.close()
-                    driver.switch_to.window(driver.window_handles[0])
-                    driver.switch_to.frame("cafe_main")
-
-                # 특정 게시물 데이터 수집에 문제가 생기더라도 다음 게시물로 넘어감.
+                    # 특정 게시물 데이터 수집에 문제가 생기더라도 다음 게시물로 넘어감.
                 except:
                     print(f"{i}번째 page의 {j}번째 글 데이터 수집 과정에서 error 발생.")
                     pass
+
+                # 새 창 닫기 -> 원래 창으로 이동
+                driver.close()
+                driver.switch_to.window(driver.window_handles[0])
+                driver.switch_to.frame("cafe_main")
 
             i += 1
             try:
@@ -172,6 +178,8 @@ def web_scraping(cafe_url, max_pages, menu_name):
             if i == 12:
                 i = 2
 
+            save_data(scraped_data, output_dir, data_file_name)
+
 
 if __name__ == '__main__':
     login_kwargs = {
@@ -183,7 +191,9 @@ if __name__ == '__main__':
         'cafe_url': "https://cafe.naver.com/plantremarket",
         'menu_name': "식물관련질문",
 
-        'max_pages': 30
+        'output_dir' : './data',
+        'data_file_name' : 'scraped_data.json',
+        'max_pages': 30,
     }
 
     # 셀레니움 브라우저 오픈
