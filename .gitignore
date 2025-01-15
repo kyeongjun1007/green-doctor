@@ -1,6 +1,7 @@
 .idea
 .venv
 
-data/*
-
 temp.py
+
+data/*
+scraping.log

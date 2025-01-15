@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from tqdm import tqdm
 import pyperclip
+import logging
 
 
 def save_data(data, output_dir, file_name="scraped_data.json"):
@@ -27,6 +28,7 @@ def open_browser():
     op = webdriver.ChromeOptions()
     chrome_service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=chrome_service, options=op)
+    logging.info('크롬 브라우저 열기')
     return driver
 
 
@@ -50,8 +52,11 @@ def naver_login(naver_id, naver_pw):
         # 그 이전에 페이지가 로드되면 자동으로 다음 명령을 실행한다.
         driver.implicitly_wait(50)
 
+        logging.info('네이버 로그인')
+
     except:
-        print("no such element")  #예외처리
+        logging.info('네이버 로그인 실패')
+        print("no such element")  # 예외처리
 
 
 def scraping():
@@ -79,7 +84,7 @@ def scraping():
         body_text_list = []
         for element in body_text_elements:
             text = element.text
-            if len(text) > 0: # 줄바꿈 제거
+            if len(text) > 0:  # 줄바꿈 제거
                 body_text_list.append(text)
 
         # 본문 이미지 URL 추출
@@ -118,12 +123,15 @@ def web_scraping(cafe_url, max_pages, menu_name, output_dir, data_file_name):
     time.sleep(2)
     driver.get(cafe_url)
     time.sleep(2)
+    logging.info('Accessed to url')
 
     menu = driver.find_element(By.XPATH, f'//a[contains(text(), "{menu_name}")]')
     menu.click()
     time.sleep(2)
     driver.switch_to.frame("cafe_main")
+    logging.info('Accessed to board menu')
 
+    i = 1
     scraped_data = []
     with tqdm(total=max_pages) as pbar:
         while pbar.n < max_pages:
@@ -136,37 +144,64 @@ def web_scraping(cafe_url, max_pages, menu_name, output_dir, data_file_name):
                     page_button = driver.find_element(By.XPATH,
                                                       f'//*[@id="main-area"]/div[4]/table/tbody/tr[{j}]/td[1]/div[2]/div/a[1]')
                     page_button.send_keys(Keys.CONTROL + "\n")
+                    logging.info(f'{i}번째 페이지 {j}번 게시글 클릭')
+                except:
+                    logging.info(f'{i}번째 페이지 {j}번째 게시글 클릭 실패')
+                    continue
+
+                try:
                     driver.switch_to.window(driver.window_handles[-1])
                     driver.switch_to.frame("cafe_main")
                     time.sleep(0.5)
+                    logging.info('탭 이동')
+                except:
+                    logging.info(f'탭 이동 실패')
+                    pass
 
+                try:
                     data = scraping()
                     if data:
                         scraped_data.append(data)
-
-                    post_scrape_time = time.time() - post_start_time
-                    page_scrape_time.append(post_scrape_time)
-
+                        logging.info('데이터 수집')
+                    else:
+                        logging.info('데이터가 존재하지 않음')
                 except:
-                    print(f"{pbar.n + 1}번째 page의 {j}번째 글 데이터 수집 과정에서 error 발생.")
+                    logging.info('데이터 수집 실패')
                     pass
 
-                driver.close()
-                driver.switch_to.window(driver.window_handles[0])
-                driver.switch_to.frame("cafe_main")
+                post_scrape_time = time.time() - post_start_time
+                page_scrape_time.append(post_scrape_time)
+
+                try:
+                    driver.close()
+                    logging.info('탭 닫기')
+                    driver.switch_to.window(driver.window_handles[0])
+                    driver.switch_to.frame("cafe_main")
+                    logging.info('탭 이동')
+                except:
+                    logging.info('탭 닫고 이동 실패')
 
             i = pbar.n + 1
+            page_total_time = time.time() - page_start_time
+            avg_post_time = sum(page_scrape_time) / len(page_scrape_time) if page_scrape_time else 0
+            print(
+                f"Page {pbar.n + 1}: Average post scrape time: {avg_post_time:.2f}s, Total page time: {page_total_time:.2f}s")
+            logging.info(
+                f"Page {pbar.n + 1}: Average post scrape time: {avg_post_time:.2f}s, Total page time: {page_total_time:.2f}s")
+
             try:
                 page_button = driver.find_element(By.XPATH, f'//*[@id="main-area"]/div[6]/a[{i}]')
                 page_button.click()
                 time.sleep(2)
-            except Exception as e:
-                print(f"{i}번째 page 클릭 과정에서 error 발생")
-                raise
-
-            page_total_time = time.time() - page_start_time
-            avg_post_time = sum(page_scrape_time) / len(page_scrape_time) if page_scrape_time else 0
-            print(f"Page {pbar.n + 1}: Average post scrape time: {avg_post_time:.2f}s, Total page time: {page_total_time:.2f}s")
+                logging.info(f'{i}번째 page 클릭')
+            except:
+                logging.info(f'{i}번째 페이지 클릭 실패')
+                pbar.update(1)
+                if pbar.n % 10 == 0:
+                    i = 2
+                if i == 12:
+                    i = 2
+                continue
 
             pbar.update(1)
             if pbar.n % 10 == 0:
@@ -174,7 +209,11 @@ def web_scraping(cafe_url, max_pages, menu_name, output_dir, data_file_name):
             if i == 12:
                 i = 2
 
-            save_data(scraped_data, output_dir, data_file_name)
+            try:
+                save_data(scraped_data, output_dir, data_file_name)
+                logging.info('데이터 저장')
+            except:
+                logging.info('데이터 저장 실패')
 
 
 if __name__ == '__main__':
@@ -191,6 +230,12 @@ if __name__ == '__main__':
         'data_file_name' : 'scraped_data.json',
         'max_pages': 30,
     }
+
+    logging.basicConfig(
+        format='%(asctime)s: %(message)s',
+        filename='scraping.log',
+        filemode='w',
+        level=logging.INFO)
 
     # 셀레니움 브라우저 오픈
     driver = open_browser()
