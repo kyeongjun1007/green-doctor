@@ -1,11 +1,9 @@
 import os
 import time
 import json
-from collections import deque
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -40,7 +38,7 @@ def naver_login(naver_id, naver_pw):
         pw_box = driver.find_element(By.ID, 'pw')
         pyperclip.copy(naver_id)
         id_box.send_keys(Keys.CONTROL + 'v')
-        time.sleep(1)
+        time.sleep(0.5)
 
         pyperclip.copy(naver_pw)
         pw_box.send_keys(Keys.CONTROL + 'V')  # 네이버 Password
@@ -50,7 +48,7 @@ def naver_login(naver_id, naver_pw):
         # 최대 대기 시간 설정 : 페이지가 다 로드되지 않았을 때 element를 찾다가
         # 오류가 나는 것을 방지하기 위한 설정. 최대 50초까지 기다리고,
         # 그 이전에 페이지가 로드되면 자동으로 다음 명령을 실행한다.
-        driver.implicitly_wait(50)
+        driver.implicitly_wait(30)
 
         logging.info('네이버 로그인')
 
@@ -73,7 +71,7 @@ def scraping():
         question_data = {}
 
         # 제목 추출
-        title = driver.find_element(By.XPATH, '//*[@id="app"]/div/div/div[2]/div[1]/div[1]/div/div/h3').text
+        title = driver.find_element(By.CSS_SELECTOR, "h3.title_text").text
 
         # 작성자 추출
         author = driver.find_element(By.CSS_SELECTOR, ".nickname").text
@@ -81,6 +79,7 @@ def scraping():
         # 본문 텍스트 추출
         # time.sleep(1)
         body_text_elements = driver.find_elements(By.CSS_SELECTOR, '.se-component.se-text .se-text-paragraph')
+
         body_text_list = []
         for element in body_text_elements:
             text = element.text
@@ -95,11 +94,9 @@ def scraping():
             body_image_list.append(element.get_attribute('src'))
 
         # 답변 추출
-        # time.sleep(1)  # 댓글 데이터 로드 대기
         comment_elements = driver.find_elements(By.CSS_SELECTOR, ".CommentItem")
         comments = []
         for comment in comment_elements:
-            time.sleep(0.5)
             comment_author = comment.find_element(By.CSS_SELECTOR, ".comment_nickname").text.strip()
             content = comment.find_element(By.CSS_SELECTOR, ".text_comment").text.strip()
             comments.append({"author": comment_author, "content": content})
@@ -113,10 +110,56 @@ def scraping():
         if len(comments) != 0:
             question_data['comments'] = comments
 
+        logging.info(f'데이터 수집')
         return question_data
 
     except:
+        logging.info('데이터 수집 실패')
         return None
+
+
+def open_article(article, page_num, post_num):
+    try:
+        article.send_keys(Keys.CONTROL + "\n")
+        logging.info(f'{page_num}페이지 {post_num}번째 게시물 열기')
+        return True
+    except:
+        logging.info(f'{page_num}페이지 {post_num}번째 게시물 열기 실패')
+        return False
+
+
+def switch_window(forward):
+    ind = -1 if forward else 0
+    try:
+        driver.switch_to.window(driver.window_handles[ind])
+        time.sleep(0.5)
+        logging.info(f'탭 이동')
+        return True
+    except:
+        logging.info(f'탭 이동 실패')
+        return False
+
+
+def switch_iframe():
+    driver.implicitly_wait(30)
+    try:
+        driver.switch_to.frame("cafe_main")
+        logging.info('iframe 이동')
+        return True
+    except:
+        logging.info('iframe 이동')
+        return False
+
+
+def close_article():
+    try:
+        driver.close()
+        time.sleep(0.5)
+        logging.info('게시물 닫기')
+        return True
+    except:
+        logging.ingo('게시물 닫기 실패')
+        return False
 
 
 def web_scraping(cafe_url, max_pages, menu_name, output_dir, data_file_name):
@@ -131,83 +174,58 @@ def web_scraping(cafe_url, max_pages, menu_name, output_dir, data_file_name):
     driver.switch_to.frame("cafe_main")
     logging.info('Accessed to board menu')
 
-    i = 1
     scraped_data = []
     with tqdm(total=max_pages) as pbar:
         while pbar.n < max_pages:
+
+            pbar.update(1) # pbar.n : 현재 page 번호
+
             page_start_time = time.time()
             page_scrape_time = []
 
-            for j in range(1, 16):
-                try:
-                    post_start_time = time.time()
-                    page_button = driver.find_element(By.XPATH,
-                                                      f'//*[@id="main-area"]/div[4]/table/tbody/tr[{j}]/td[1]/div[2]/div/a[1]')
-                    page_button.send_keys(Keys.CONTROL + "\n")
-                    logging.info(f'{i}번째 페이지 {j}번 게시글 클릭')
-                except:
-                    logging.info(f'{i}번째 페이지 {j}번째 게시글 클릭 실패')
+            # 게시글 추출
+            articles = driver.find_elements(By.CSS_SELECTOR, "a.article")
+
+            for i, article in enumerate(articles):
+                post_start_time = time.time()
+
+                if pbar.n == 1 and i < 8:
                     continue
 
-                try:
-                    driver.switch_to.window(driver.window_handles[-1])
-                    driver.switch_to.frame("cafe_main")
-                    time.sleep(0.5)
-                    logging.info('탭 이동')
-                except:
-                    logging.info(f'탭 이동 실패')
-                    pass
+                if not open_article(article, pbar.n, i):        # 게시물이 안 열리면 다음 게시물 열기 시도
+                    continue
 
-                try:
-                    data = scraping()
-                    if data:
-                        scraped_data.append(data)
-                        logging.info('데이터 수집')
-                    else:
-                        logging.info('데이터가 존재하지 않음')
-                except:
-                    logging.info('데이터 수집 실패')
-                    pass
+                if not switch_window(forward=True):             # 게시물을 새 탭에서 열었는데 탭 이동이 안 될 경우 게시판으로 이동
+                    switch_window(forward=False)
+                    continue
 
-                post_scrape_time = time.time() - post_start_time
-                page_scrape_time.append(post_scrape_time)
+                if not switch_iframe():                         # 게시물 열었는데 iframe 못 찾을 경우 끄고 다음 게시물
+                    close_article()
+                    switch_window(forward=False)
+                    switch_iframe()
+                    continue
 
-                try:
-                    driver.close()
-                    logging.info('탭 닫기')
-                    driver.switch_to.window(driver.window_handles[0])
-                    driver.switch_to.frame("cafe_main")
-                    logging.info('탭 이동')
-                except:
-                    logging.info('탭 닫고 이동 실패')
+                data = scraping()
+                if data:
+                    scraped_data.append(data)
 
-            i = pbar.n + 1
+                close_article()
+                switch_window(forward=False)
+                switch_iframe()
+
+                page_scrape_time.append(time.time() - post_start_time)
+
             page_total_time = time.time() - page_start_time
             avg_post_time = sum(page_scrape_time) / len(page_scrape_time) if page_scrape_time else 0
-            print(
-                f"Page {pbar.n + 1}: Average post scrape time: {avg_post_time:.2f}s, Total page time: {page_total_time:.2f}s")
-            logging.info(
-                f"Page {pbar.n + 1}: Average post scrape time: {avg_post_time:.2f}s, Total page time: {page_total_time:.2f}s")
+            print(f"Page {pbar.n}: Average post scrape time: {avg_post_time:.2f}s, Total page time: {page_total_time:.2f}s")
 
             try:
-                page_button = driver.find_element(By.XPATH, f'//*[@id="main-area"]/div[6]/a[{i}]')
+                page_button = driver.find_element(By.CSS_SELECTOR, f"a[href*='search.page={pbar.n + 1}']")
                 page_button.click()
-                time.sleep(2)
-                logging.info(f'{i}번째 page 클릭')
+                driver.implicitly_wait(60)
+                logging.info(f'{pbar.n + 1} 페이지로 이동')
             except:
-                logging.info(f'{i}번째 페이지 클릭 실패')
-                pbar.update(1)
-                if pbar.n % 10 == 0:
-                    i = 2
-                if i == 12:
-                    i = 2
-                continue
-
-            pbar.update(1)
-            if pbar.n % 10 == 0:
-                i = 2
-            if i == 12:
-                i = 2
+                logging.info(f'{pbar.n + 1} 페이지로 이동 실패')
 
             try:
                 save_data(scraped_data, output_dir, data_file_name)

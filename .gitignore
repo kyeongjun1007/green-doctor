@@ -4,4 +4,4 @@
 temp.py
 
 data/*
-scraping.log
+*.log
